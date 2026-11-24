@@ -1405,7 +1405,10 @@ def ensure_sos_defaults() -> None:
 def select_role(role_name: str, user_key: str | None = None) -> None:
     ss = st.session_state
     ss.role = role_name
-    ss.nav_role_selection = role_name
+    try:
+        ss.nav_role_selection = role_name
+    except Exception:
+        pass
     if role_name == ROLE_LOGIN:
         ss.logged_in = False
         ss.current_user = None
@@ -1600,6 +1603,8 @@ def render_sidebar() -> None:
             """)
 
         st.markdown('<div class="side-sub" style="margin-bottom:0.4rem">Select Role Dashboard</div>', unsafe_allow_html=True)
+        if ss.role in ROLES_LIST:
+            ss.nav_role_selection = ss.role
         cur_idx = ROLES_LIST.index(ss.role) if ss.role in ROLES_LIST else 0
         st.radio("Select Role Dashboard", ROLES_LIST, index=cur_idx, key="nav_role_selection",
                  on_change=on_sidebar_role_change, label_visibility="collapsed")
