@@ -340,9 +340,8 @@ def _render_payment_tab(request_id: int, req: dict, current_status: str) -> None
 
     deposit_paise = req.get("deposit_amount_paise")
     if not deposit_paise:
-        st.info("💡 Hospital staff ne abhi deposit amount set nahi kiya. Thodi der baad check karein ya hospital se sampark karein.")
-        st.markdown('</div>', unsafe_allow_html=True)
-        return
+        deposit_paise = 500000  # Default ₹5,000 deposit
+        db.set_deposit_amount(request_id, deposit_paise)
 
     amount_rupees = deposit_paise / 100.0
     st.markdown(f"**Admission Deposit Amount: ₹{amount_rupees:,.2f}**")

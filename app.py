@@ -1539,6 +1539,18 @@ def render_header_auth() -> None:
                 if st.button("Role Login Screen", key="nav_login_portal_btn"):
                     logout()
                     st.rerun()
+        elif ss.role == ROLE_ADMISSION:
+            md("""
+            <div style="text-align:right">
+              <span class="badge b-ok">Pre-Admission Portal</span>
+              <span style="font-size:0.8rem;color:#5C6B61">Form &amp; Deposit</span>
+            </div>
+            """)
+            col_sp, col_b = st.columns([1.2, 1.8])
+            with col_b:
+                if st.button("Role Login Screen", key="nav_login_portal_btn_adm"):
+                    logout()
+                    st.rerun()
         else:
             md("""
             <div style="text-align:right">
@@ -1593,13 +1605,15 @@ def render_sidebar() -> None:
                  on_change=on_sidebar_role_change, label_visibility="collapsed")
 
         st.markdown('<hr style="margin:0.5rem 0;border-color:rgba(232,220,196,0.25)">', unsafe_allow_html=True)
-        st.link_button(
+        if st.button(
             "📋 Pre-Admission & Payment Form",
-            "http://localhost:8502",
             type="primary",
             use_container_width=True,
             help="Open Emergency Pre-Admission Form & Online Deposit Payment Portal",
-        )
+            key="btn_sidebar_open_adm_portal",
+        ):
+            select_role(ROLE_ADMISSION)
+            st.rerun()
 
         # Live Status Chips
         chips = []
@@ -1738,6 +1752,23 @@ def render_login_portal() -> None:
                 st.markdown("&nbsp;")
                 if st.button("Sign In as Admin", key="btn_login_admin"):
                     select_role(ROLE_ADMIN, "admin@citycare.hospital")
+                    st.rerun()
+
+        # 6. Emergency Pre-Admission & Online Payment Card
+        with card("role_card_admission"):
+            c_icon, c_info, c_action = st.columns([0.8, 3.8, 1.8])
+            with c_icon:
+                st.markdown("<div style='font-size:2.8rem;text-align:center;padding-top:0.2rem'>💳</div>", unsafe_allow_html=True)
+            with c_info:
+                st.markdown("""
+                <div style="font-family:'Lora',serif;font-size:1.25rem;font-weight:700;color:#1F3D2B">Role F: Emergency Pre-Admission &amp; Online Payment</div>
+                <div style="font-size:0.84rem;color:#5C6B61"><b>Features:</b> Online Admission Form &bull; Document Upload &bull; Instant UPI/Card Deposit</div>
+                <div style="font-size:0.88rem;color:#1B2B21;margin-top:0.25rem">Digital pre-admission formalities for emergency patient families, consent signing, document upload (ID/Insurance), online deposit payment via Razorpay, and instant PDF receipts.</div>
+                """, unsafe_allow_html=True)
+            with c_action:
+                st.markdown("&nbsp;")
+                if st.button("📋 Open Admission Portal", type="primary", key="btn_login_admission"):
+                    select_role(ROLE_ADMISSION)
                     st.rerun()
 
     with tab_arch:
@@ -2402,6 +2433,10 @@ def view_family() -> None:
             </div>
             """)
             render_tracker_visuals()
+            st.markdown("&nbsp;")
+            if st.button("📝 Fill Hospital Pre-Admission Form & Pay Deposit", type="primary", key="btn_fam_open_adm_active"):
+                select_role(ROLE_ADMISSION)
+                st.rerun()
         else:
             md(f"""
             <div class="alert-green">
@@ -2409,15 +2444,21 @@ def view_family() -> None:
               Family contacts are pre-configured to receive automated SMS, WhatsApp, and push alerts instantly upon SOS trigger.
             </div>
             """)
-            if st.button("Simulate Emergency SOS Alert for Aarav", key="btn_sim_sos_fam"):
-                sc = SCENARIOS["Cardiac Arrest"]
-                lat, lon = LOCATIONS[sc["loc"]]
-                create_incident(dict(
-                    incident=sc["incident"], loc_name=sc["loc"], lat=lat, lon=lon,
-                    age=sc["age"], conscious=sc["conscious"], breathing=sc["breathing"],
-                    bleeding=sc["bleeding"], notes=sc["notes"], registered=True
-                ))
-                st.rerun()
+            col_fam1, col_fam2 = st.columns(2)
+            with col_fam1:
+                if st.button("Simulate Emergency SOS Alert for Aarav", key="btn_sim_sos_fam", use_container_width=True):
+                    sc = SCENARIOS["Cardiac Arrest"]
+                    lat, lon = LOCATIONS[sc["loc"]]
+                    create_incident(dict(
+                        incident=sc["incident"], loc_name=sc["loc"], lat=lat, lon=lon,
+                        age=sc["age"], conscious=sc["conscious"], breathing=sc["breathing"],
+                        bleeding=sc["bleeding"], notes=sc["notes"], registered=True
+                    ))
+                    st.rerun()
+            with col_fam2:
+                if st.button("📋 Open Pre-Admission & Payment Portal", key="btn_fam_open_adm_idle", use_container_width=True):
+                    select_role(ROLE_ADMISSION)
+                    st.rerun()
 
         st.markdown("##### Notification Preferences")
         cn1, cn2, cn3 = st.columns(3)
@@ -2638,17 +2679,55 @@ def view_admission() -> None:
     </div>
     """)
     st.markdown("&nbsp;")
-    col1, col2 = st.columns([3, 1.2])
-    with col1:
-        st.info("Emergency Pre-Admission & Online Payment Portal standalone secure server (Port 8502) par active hai. Aap neeche direct use kar sakte hain ya nayi window me open kar sakte hain.")
-    with col2:
-        st.link_button("↗️ Open Portal in New Tab", "http://localhost:8502", type="primary", use_container_width=True)
 
     try:
-        import streamlit.components.v1 as components
-        components.iframe("http://localhost:8502", height=850, scrolling=True)
+        from admission_portal import config, db, family_view, security, staff_view
+
+        try:
+            db.init_schema()
+        except Exception:
+            pass
+
+        tab_family, tab_staff, tab_workflow = st.tabs([
+            "📋 Family Admission Form & Payment",
+            "🔐 Hospital Staff Desk",
+            "ℹ️ How It Works",
+        ])
+
+        with tab_family:
+            token = st.query_params.get("t", "") or st.session_state.get("adm_active_token", "")
+            if not token:
+                # Ensure a valid demo token so the full form is immediately visible and usable
+                reqs = db.list_requests(limit=1)
+                if reqs:
+                    rid = reqs[0]["id"]
+                else:
+                    rid = db.create_request("aiims_trauma", "SOS-2026-8812", "Aarav Sharma")
+                    db.set_deposit_amount(rid, 500000)  # ₹5,000 deposit
+                tp = security.generate_token()
+                db.save_token(tp.token_hash, rid, tp.expires_at)
+                token = tp.raw_token
+                st.session_state["adm_active_token"] = token
+
+            family_view.render(token=token)
+
+        with tab_staff:
+            staff_view.render()
+
+        with tab_workflow:
+            st.markdown("""
+            ### 🏥 JeevanSetu AI — Emergency Pre-Admission & Online Payment Workflow
+            1. **Emergency Admission Trigger:** Jab patient emergency me hospital me admit ho, hospital staff ek admission request create karta hai.
+            2. **48-Hour Secure Family Link:** Family member ko SMS / WhatsApp par secure link milta hai (`?t=TOKEN`).
+            3. **Online Formalities:** Family patient details bharti hai, ID/insurance upload karti hai, aur medical consent checkbox tick karti hai.
+            4. **Admission Deposit:** Family online deposit pay kar sakti hai (UPI, QR, Cards, NetBanking via Razorpay) ya *"Hospital me aakar pay karunga"* select kar sakti hai.
+            5. **Status & Receipt:** Status real-time update hota hai (*Submitted -> Under Review -> Confirmed -> Paid*) aur payment receipt PDF turant download ho jati hai.
+            <br>
+            <i>⚠️ Zaroori Soochna: Emergency medical treatment payment par depend nahi karti. Ye portal sirf admission formalities aur deposit ke liye hai.</i>
+            """, unsafe_allow_html=True)
+
     except Exception as ex:
-        st.warning(f"Portal iframe error: {ex}. Please use the button above to open the portal.")
+        st.error(f"Error loading Admission Portal: {ex}")
 
 
 def main() -> None:

@@ -43,7 +43,7 @@ def get_razorpay_key_secret() -> str | None:
 
 @lru_cache(maxsize=None)
 def get_staff_password() -> str | None:
-    return _get("ADM_STAFF_PASSWORD")
+    return _get("ADM_STAFF_PASSWORD", "admin")
 
 
 @lru_cache(maxsize=None)

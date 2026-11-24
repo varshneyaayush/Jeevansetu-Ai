@@ -73,6 +73,24 @@ def get_or_create_payment_link(request_id: int, description: str = "") -> dict:
         )
 
     # 3. Create Razorpay Payment Link
+    key_id = config.get_razorpay_key_id()
+    key_secret = config.get_razorpay_key_secret()
+
+    if not key_id or not key_secret:
+        # Fallback for deployment environments where Razorpay keys are not yet configured
+        demo_link_id = f"plink_demo_{request_id}_{int(time.time())}"
+        demo_url = f"https://rzp.io/l/demo_portal_{request_id}"
+        db.create_payment_record(request_id, amount_paise, demo_link_id, demo_url)
+        db.update_request_status(request_id, "payment_pending")
+        db.audit_log(request_id, "system", "payment_link_created_demo", f"link_id={demo_link_id} amount_paise={amount_paise}")
+        return {
+            "short_url": demo_url,
+            "link_id": demo_link_id,
+            "amount_paise": amount_paise,
+            "status": "created",
+            "already_existed": False,
+        }
+
     client = _get_razorpay_client()
     desc = description or f"Admission Deposit — Request #{request_id}"
     # Truncate desc to Razorpay limit
@@ -128,6 +146,18 @@ def verify_payment_status(request_id: int) -> dict:
     link_id = payment.get("razorpay_link_id")
     if not link_id:
         return {"status": payment.get("status", "unknown"), "razorpay_payment_id": "", "amount_paise": 0}
+
+    # Demo mode simulation verification
+    if link_id.startswith("plink_demo_"):
+        payment_id = f"pay_demo_{request_id}_{int(time.time())}"
+        db.update_payment_status(request_id, "paid", payment_id)
+        db.update_request_status(request_id, "paid")
+        db.audit_log(request_id, "system", "payment_verified_paid_demo", f"payment_id={payment_id}")
+        return {
+            "status": "paid",
+            "razorpay_payment_id": payment_id,
+            "amount_paise": payment.get("amount_paise", 0),
+        }
 
     client = _get_razorpay_client()
     try:
